@@ -217,7 +217,9 @@ function HomeContent() {
     
     const hours = Math.floor(durationMinutes / 60);
     const minutes = durationMinutes % 60;
-    const duration = `${hours}h ${minutes}m`;
+    const hoursFormatted = String(hours).padStart(2, "0");
+    const minutesFormatted = String(minutes).padStart(2, "0");
+    const duration = `${hoursFormatted}:${minutesFormatted}`;
 
     const finishedTask = {
       ...taskToFinish,
