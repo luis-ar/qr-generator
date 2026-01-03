@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { z } from "zod";
 import QRScannerModal from "@/components/QRScannerModal";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 const adminSchema = z.object({
   proyecto: z.string().min(1, "El ID del proyecto es requerido"),
@@ -29,6 +30,35 @@ function HomeContent() {
   const [completedTasks, setCompletedTasks] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<"active" | "history">("active");
   const [userView, setUserView] = useState<"dashboard" | "tasks">("dashboard");
+  const [historyView, setHistoryView] = useState<"list" | "weekly">("list");
+  
+  const groupedTasks = useMemo(() => {
+    const groups: Record<string, { totalHours: number, tasks: any[] }> = {};
+    
+    // Sort tasks by date desc first
+    const sortedTasks = [...completedTasks].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+    sortedTasks.forEach(task => {
+      const date = new Date(task.date);
+      // Get start of week (Sunday)
+      const day = date.getDay();
+      const diff = date.getDate() - day; // adjust when day is sunday
+      const weekStart = new Date(date);
+      weekStart.setDate(diff);
+      weekStart.setHours(0, 0, 0, 0);
+      
+      const key = weekStart.toISOString();
+      
+      if (!groups[key]) {
+        groups[key] = { totalHours: 0, tasks: [] };
+      }
+      
+      groups[key].tasks.push(task);
+      groups[key].totalHours += (task.unit_amount || 0);
+    });
+
+    return groups;
+  }, [completedTasks]);
   const URL_PUBLIC = process.env.NEXT_PUBLIC_URL;
   const [formData, setFormData] = useState({
     proyecto: "",
@@ -41,12 +71,28 @@ function HomeContent() {
   const [showQRScanner, setShowQRScanner] = useState(false);
   const [taskToFinishId, setTaskToFinishId] = useState<number | null>(null);
 
+  //tasks completed
+
+  const tasksCompleted=async()=>{
+    const savedEID = localStorage.getItem("userID");
+    const response = await fetch('/api/task', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: savedEID }),
+          });
+    const data = await response.json();
+    setCompletedTasks(data.data.result)
+    console.log(data);
+  }
+
+  useEffect(()=>{
+    tasksCompleted();
+  },[])
+
   // Initialize tasks from localStorage
   useEffect(() => {
     const savedActive = localStorage.getItem("activeTasks");
-    const savedCompleted = localStorage.getItem("completedTasks");
     if (savedActive) setActiveTasks(JSON.parse(savedActive));
-    if (savedCompleted) setCompletedTasks(JSON.parse(savedCompleted));
   }, []);
 
   // Capture params from URL and sync with localStorage
@@ -264,13 +310,12 @@ function HomeContent() {
     }
 
     const updatedActive = activeTasks.filter(t => t.id !== taskToFinish.id);
-    const updatedCompleted = [finishedTask, ...completedTasks];
+    // const updatedCompleted = [finishedTask, ...completedTasks];
 
     setActiveTasks(updatedActive);
-    setCompletedTasks(updatedCompleted);
-    
+    await tasksCompleted()    
     localStorage.setItem("activeTasks", JSON.stringify(updatedActive));
-    localStorage.setItem("completedTasks", JSON.stringify(updatedCompleted));
+    // localStorage.setItem("completedTasks", JSON.stringify(updatedCompleted));
     setTaskToFinishId(null);
   };
 
@@ -476,32 +521,107 @@ function HomeContent() {
                         <p className="text-sm text-zinc-400">No hay tareas terminadas</p>
                       </div>
                     ) : (
-                      <div className="grid gap-3">
-                        {completedTasks.map((task) => (
-                          <div key={task.id} className="relative overflow-hidden rounded-2xl border border-zinc-100 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 opacity-80">
-                            <div className="absolute left-0 top-0 h-full w-1.5 bg-zinc-300 dark:bg-zinc-700" />
-                            <div className="flex items-start justify-between">
-                              <div className="space-y-3">
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <h3 className="font-bold text-zinc-900 dark:text-zinc-100">{task.descripcion}</h3>
-                                  <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-bold text-zinc-500 dark:bg-zinc-800 dark:text-zinc-500">FINALIZADO</span>
-                                </div>
-                                <div className="flex items-center gap-3">
-                                  <div className="rounded-lg bg-zinc-50 px-3 py-1 text-xs font-semibold text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
-                                    ID: {task.tareaID}
-                                  </div>
-                                  <div className="rounded-lg bg-zinc-50 px-3 py-1 text-xs font-semibold text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
-                                    Proy: {task.proyectoID}
-                                  </div>
-                                </div>
-                                <div className="flex items-center gap-2 text-zinc-400 dark:text-zinc-500">
-                                  <span className="text-xs">{task.horas} — {task.finalizado}</span>
-                                </div>
-                              </div>
+                        <>
+                          <div className="flex justify-end mb-4">
+                            <div className="flex items-center rounded-lg bg-zinc-100 p-1 dark:bg-zinc-800">
+                              <button
+                                onClick={() => setHistoryView("list")}
+                                className={`rounded-md px-3 py-1.5 text-xs font-medium transition-all ${
+                                  historyView === "list"
+                                    ? "bg-white text-black shadow-sm dark:bg-zinc-700 dark:text-white"
+                                    : "text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+                                }`}
+                              >
+                                Individual
+                              </button>
+                              <button
+                                onClick={() => setHistoryView("weekly")}
+                                className={`rounded-md px-3 py-1.5 text-xs font-medium transition-all ${
+                                  historyView === "weekly"
+                                    ? "bg-white text-black shadow-sm dark:bg-zinc-700 dark:text-white"
+                                    : "text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+                                }`}
+                              >
+                                Semanal
+                              </button>
                             </div>
                           </div>
-                        ))}
-                      </div>
+
+                          {historyView === "list" ? (
+                            <ScrollArea className="h-[400px]">
+                              <div className="grid gap-3">
+                                {completedTasks.map((task) => (
+                                  <div key={task.id} className="relative overflow-hidden rounded-2xl border border-zinc-100 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 opacity-80">
+                                    <div className="absolute left-0 top-0 h-full w-1.5 bg-zinc-300 dark:bg-zinc-700" />
+                                    <div className="flex items-start justify-between">
+                                      <div className="space-y-3">
+                                        <div className="flex flex-wrap items-center gap-2">
+                                          <h3 className="font-bold text-zinc-900 dark:text-zinc-100">{task.name}</h3>
+                                          <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-bold text-zinc-500 dark:bg-zinc-800 dark:text-zinc-500">FINALIZADO</span>
+                                        </div>
+                                        <div className="flex items-center gap-3">
+                                          <div className="rounded-lg bg-zinc-50 px-3 py-1 text-xs font-semibold text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+                                            ID: {task.id}
+                                          </div>
+                                          <div className="rounded-lg bg-zinc-50 px-3 py-1 text-xs font-semibold text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+                                            Proy: {task.project_id[0]}
+                                          </div>
+                                        </div>
+                                        <div className="flex items-center gap-2 text-zinc-400 dark:text-zinc-500">
+                                          <span className="text-xs">{task.date} — {task.unit_amount}h</span>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </ScrollArea>
+                          ) : (
+                            <ScrollArea className="h-[400px]">
+                              <div className="grid gap-4">
+                                {Object.entries(groupedTasks).map(([weekStart, { totalHours, tasks }]: any) => (
+                                  <div key={weekStart} className="overflow-hidden rounded-2xl border border-zinc-100 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900 opacity-90">
+                                    <div className="border-b border-zinc-100 bg-zinc-50/50 p-4 dark:border-zinc-800 dark:bg-zinc-800/30">
+                                      <div className="flex items-center justify-between">
+                                        <div>
+                                          <h3 className="font-bold text-zinc-900 dark:text-zinc-100">
+                                            Semana del {new Date(weekStart).toLocaleDateString([], { day: 'numeric', month: 'short' })}
+                                          </h3>
+                                          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                                            {tasks.length} tareas completadas
+                                          </p>
+                                        </div>
+                                        <div className="rounded-xl bg-white px-3 py-1.5 text-sm font-bold shadow-sm dark:bg-zinc-800 dark:text-zinc-200">
+                                          {totalHours.toFixed(2)}h Total
+                                        </div>
+                                      </div>
+                                    </div>
+                                    <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                                      {tasks.map((task: any) => (
+                                        <div key={task.id} className="p-4 hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
+                                          <div className="flex items-center justify-between">
+                                            <div className="min-w-0 flex-1 pr-4">
+                                              <p className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-200">
+                                                {task.name}
+                                              </p>
+                                              <p className="mt-1 text-xs text-zinc-500">
+                                                {new Date(task.date).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' })} • ID: {task.id}
+                                              </p>
+                                            </div>
+                                            <div className="flex-shrink-0 text-xs font-semibold text-zinc-600 dark:text-zinc-400">
+                                              {task.unit_amount}h
+                                            </div>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </ScrollArea>
+                          )}
+                        </>
+                      
                     )
                   )
                   }
