@@ -763,6 +763,41 @@ function Field({ id, label, value, error, onChange, placeholder, readOnly, custo
 function UserDashboard({ userName, userImage, onNavigateToTasks, onLogout }: any) {
  const [status, setStatus] = useState<{ type: 'idle' | 'loading' | 'success' | 'error'; message: string }>({ type: 'idle', message: '' });
  const [showQRScanner, setShowQRScanner] = useState(false);
+ const [attendanceRecord, setAttendanceRecord] = useState<any>(null);
+ const [attendanceHistory, setAttendanceHistory] = useState<any[]>([]);
+ const [showHistory, setShowHistory] = useState(false);
+
+ const fetchAttendanceSummary = async () => {
+  try {
+    const savedEID = localStorage.getItem("userID");
+    if (!savedEID) return;
+
+    const response = await fetch('/api/assistance', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: Number(savedEID), allHistory: true }),
+    });
+
+    const data = await response.json();
+    if (response.ok && data.data.result) {
+      setAttendanceHistory(data.data.result);
+      
+      // Find today's record
+      const today = new Date().toISOString().split('T')[0];
+      const todayRecord = data.data.result.find((r: any) => r.check_in.startsWith(today));
+      setAttendanceRecord(todayRecord || null);
+    } else {
+      setAttendanceHistory([]);
+      setAttendanceRecord(null);
+    }
+  } catch (error) {
+    console.error("Error fetching attendance summary:", error);
+  }
+ };
+
+ useEffect(() => {
+  fetchAttendanceSummary();
+ }, []);
 
  const executeAssistance = async () => {
   try {
@@ -832,6 +867,9 @@ function UserDashboard({ userName, userImage, onNavigateToTasks, onLogout }: any
       }
     }
     
+    // Refresh summary after marking attendance
+    await fetchAttendanceSummary();
+
     // Clear success message after 5 seconds
     setTimeout(() => {
       setStatus(prev => prev.type === 'success' ? { type: 'idle', message: '' } : prev);
@@ -905,6 +943,74 @@ function UserDashboard({ userName, userImage, onNavigateToTasks, onLogout }: any
         <div className="mt-4 flex items-center gap-2 rounded-full bg-zinc-100 px-4 py-1.5 dark:bg-white/5">
           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-zinc-500"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
           <span className="text-xs font-bold uppercase tracking-wider text-zinc-500">Colaborador</span>
+        </div>
+      </div>
+
+      {/* Attendance Summary */}
+      <div className="grid grid-cols-1 gap-4">
+        <div className="rounded-[30px] border border-zinc-100 bg-white p-6 shadow-sm dark:border-white/5 dark:bg-zinc-900">
+          <div className="flex items-center justify-between mb-4">
+            <h4 className="text-sm font-bold uppercase tracking-wider text-zinc-500">Resumen de Asistencia</h4>
+            <div className="flex items-center gap-2">
+              <button 
+                onClick={() => setShowHistory(!showHistory)}
+                className="text-[10px] font-bold uppercase text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+              >
+                {showHistory ? 'Cerrar Historial' : 'Ver Historial'}
+              </button>
+              <div className={`h-2 w-2 rounded-full ${attendanceRecord ? 'bg-green-500' : 'bg-amber-500'} animate-pulse`} />
+            </div>
+          </div>
+          
+          <div className="flex items-center justify-around py-2">
+            <div className="text-center">
+              <p className="text-[10px] font-bold text-zinc-400 uppercase">Hoy Entrada</p>
+              <p className="text-lg font-bold text-zinc-900 dark:text-zinc-50">
+                {attendanceRecord?.check_in ? attendanceRecord.check_in.split(' ')[1].slice(0, 5) : '--:--'}
+              </p>
+            </div>
+            <div className="h-8 w-[1px] bg-zinc-100 dark:bg-zinc-800" />
+            <div className="text-center">
+              <p className="text-[10px] font-bold text-zinc-400 uppercase">Hoy Salida</p>
+              <p className="text-lg font-bold text-zinc-900 dark:text-zinc-50">
+                {attendanceRecord?.check_out ? attendanceRecord.check_out.split(' ')[1].slice(0, 5) : '--:--'}
+              </p>
+            </div>
+          </div>
+
+          {showHistory && attendanceHistory.length > 0 && (
+            <div className="mt-6 space-y-3 border-t border-zinc-50 pt-4 dark:border-zinc-800/50">
+               <p className="text-[10px] font-bold text-zinc-400 uppercase mb-2">Registros Recientes</p>
+               <div className="max-h-[200px] overflow-y-auto pr-2 space-y-2 custom-scrollbar">
+                {attendanceHistory.map((record: any) => {
+                   const checkInDate = new Date(record.check_in);
+                   const isToday = new Date().toISOString().split('T')[0] === record.check_in.split(' ')[1];
+                   return (
+                    <div key={record.id} className="flex items-center justify-between rounded-xl bg-zinc-50/50 p-3 dark:bg-white/5">
+                      <div className="flex flex-col">
+                        <span className="text-[10px] font-bold text-zinc-500">
+                          {checkInDate.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' })}
+                        </span>
+                        <span className="text-xs font-semibold text-zinc-900 dark:text-zinc-100">
+                          {record.check_in.split(' ')[1].slice(0, 5)} - {record.check_out ? record.check_out.split(' ')[1].slice(0, 5) : 'Pendiente'}
+                        </span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[10px] font-bold text-zinc-400">Total</span>
+                        <p className="text-xs font-bold text-zinc-600 dark:text-zinc-400">
+                          {record.worked_hours ? `${Number(record.worked_hours).toFixed(1)}h` : '--'}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+               </div>
+            </div>
+          )}
+
+          {!attendanceRecord && !showHistory && (
+             <p className="mt-4 text-center text-xs text-zinc-400 italic">No tienes registros el día de hoy</p>
+          )}
         </div>
       </div>
 
