@@ -19,6 +19,12 @@ const userSchema = z.object({
 type AdminFormData = z.infer<typeof adminSchema>;
 type UserFormData = z.infer<typeof userSchema>;
 
+function formatHoursMinutes(decimalHours: number): string {
+  const hours = Math.floor(decimalHours);              // parte entera → horas
+  const minutes = Math.round((decimalHours - hours) * 60); // parte decimal → minutos
+  return `${String(hours).padStart(2, '0')}h: ${String(minutes).padStart(2, '0')}m`;
+}
+
 function HomeContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -367,11 +373,6 @@ function HomeContent() {
       alert("Error al descargar el código QR");
     }
   };
-  function formatHoursMinutes(decimalHours: number): string {
-  const hours = Math.floor(decimalHours);              // parte entera → horas
-  const minutes = Math.round((decimalHours - hours) * 60); // parte decimal → minutos
-  return `${String(hours).padStart(2, '0')}h: ${String(minutes).padStart(2, '0')}m`;
-}
 
 
   if (!isAuthenticated || !userRole) return null;
@@ -545,7 +546,7 @@ function HomeContent() {
                                     : "text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
                                 }`}
                               >
-                                Individual
+                                Día
                               </button>
                               <button
                                 onClick={() => setHistoryView("weekly")}
@@ -555,7 +556,7 @@ function HomeContent() {
                                     : "text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
                                 }`}
                               >
-                                Semanal
+                                Semana
                               </button>
                             </div>
                           </div>
@@ -760,12 +761,41 @@ function Field({ id, label, value, error, onChange, placeholder, readOnly, custo
   );
 }
 
+
 function UserDashboard({ userName, userImage, onNavigateToTasks, onLogout }: any) {
  const [status, setStatus] = useState<{ type: 'idle' | 'loading' | 'success' | 'error'; message: string }>({ type: 'idle', message: '' });
  const [showQRScanner, setShowQRScanner] = useState(false);
  const [attendanceRecord, setAttendanceRecord] = useState<any>(null);
- const [attendanceHistory, setAttendanceHistory] = useState<any[]>([]);
- const [showHistory, setShowHistory] = useState(false);
+  const [attendanceHistory, setAttendanceHistory] = useState<any[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
+  const [attendanceView, setAttendanceView] = useState<"day" | "week">("day");
+
+  const groupedAttendance = useMemo(() => {
+    const groups: Record<string, { totalHours: number, records: any[] }> = {};
+    
+    // Sort by date desc
+    const sortedHistory = [...attendanceHistory].sort((a, b) => new Date(b.check_in).getTime() - new Date(a.check_in).getTime());
+
+    sortedHistory.forEach(record => {
+      const date = new Date(record.check_in);
+      const day = date.getDay();
+      const diff = date.getDate() - day;
+      const weekStart = new Date(date);
+      weekStart.setDate(diff);
+      weekStart.setHours(0, 0, 0, 0);
+      
+      const key = weekStart.toISOString();
+      
+      if (!groups[key]) {
+        groups[key] = { totalHours: 0, records: [] };
+      }
+      
+      groups[key].records.push(record);
+      groups[key].totalHours += (Number(record.worked_hours) || 0);
+    });
+
+    return groups;
+  }, [attendanceHistory]);
 
  const fetchAttendanceSummary = async () => {
   try {
@@ -980,30 +1010,93 @@ function UserDashboard({ userName, userImage, onNavigateToTasks, onLogout }: any
 
           {showHistory && attendanceHistory.length > 0 && (
             <div className="mt-6 space-y-3 border-t border-zinc-50 pt-4 dark:border-zinc-800/50">
-               <p className="text-[10px] font-bold text-zinc-400 uppercase mb-2">Registros Recientes</p>
-               <div className="max-h-[200px] overflow-y-auto pr-2 space-y-2 custom-scrollbar">
-                {attendanceHistory.map((record: any) => {
-                   const checkInDate = new Date(record.check_in);
-                   const isToday = new Date().toISOString().split('T')[0] === record.check_in.split(' ')[1];
-                   return (
-                    <div key={record.id} className="flex items-center justify-between rounded-xl bg-zinc-50/50 p-3 dark:bg-white/5">
-                      <div className="flex flex-col">
-                        <span className="text-[10px] font-bold text-zinc-500">
-                          {checkInDate.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' })}
-                        </span>
-                        <span className="text-xs font-semibold text-zinc-900 dark:text-zinc-100">
-                          {record.check_in.split(' ')[1].slice(0, 5)} - {record.check_out ? record.check_out.split(' ')[1].slice(0, 5) : 'Pendiente'}
-                        </span>
+               <div className="flex items-center justify-between mb-2">
+                 <p className="text-[10px] font-bold text-zinc-400 uppercase">Registros Recientes</p>
+                 <div className="flex items-center rounded-lg bg-zinc-100 p-0.5 dark:bg-white/5">
+                   <button
+                     onClick={() => setAttendanceView("day")}
+                     className={`rounded-md px-2 py-1 text-[10px] font-bold transition-all ${
+                       attendanceView === "day"
+                         ? "bg-white text-black shadow-sm dark:bg-zinc-700 dark:text-white"
+                         : "text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+                     }`}
+                   >
+                     Día
+                   </button>
+                   <button
+                     onClick={() => setAttendanceView("week")}
+                     className={`rounded-md px-2 py-1 text-[10px] font-bold transition-all ${
+                       attendanceView === "week"
+                         ? "bg-white text-black shadow-sm dark:bg-zinc-700 dark:text-white"
+                         : "text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+                     }`}
+                   >
+                     Semana
+                   </button>
+                 </div>
+               </div>
+               
+               <div className="max-h-[300px] overflow-y-auto pr-2 space-y-2 custom-scrollbar">
+                {attendanceView === "day" ? (
+                  attendanceHistory.map((record: any) => {
+                    const checkInDate = new Date(record.check_in);
+                    return (
+                      <div key={record.id} className="flex items-center justify-between rounded-xl bg-zinc-50/50 p-3 dark:bg-white/5">
+                        <div className="flex flex-col">
+                          <span className="text-[10px] font-bold text-zinc-500">
+                            {checkInDate.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' })}
+                          </span>
+                          <span className="text-xs font-semibold text-zinc-900 dark:text-zinc-100">
+                            {record.check_in.split(' ')[1].slice(0, 5)} - {record.check_out ? record.check_out.split(' ')[1].slice(0, 5) : 'Pendiente'}
+                          </span>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-[10px] font-bold text-zinc-400">Total</span>
+                          <p className="text-xs font-bold text-zinc-600 dark:text-zinc-400">
+                            {record.worked_hours ? `${Number(record.worked_hours).toFixed(1)}h` : '--'}
+                          </p>
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <span className="text-[10px] font-bold text-zinc-400">Total</span>
-                        <p className="text-xs font-bold text-zinc-600 dark:text-zinc-400">
-                          {record.worked_hours ? `${Number(record.worked_hours).toFixed(1)}h` : '--'}
-                        </p>
+                    );
+                  })
+                ) : (
+                  Object.entries(groupedAttendance).map(([weekStart, { totalHours, records }]: any) => (
+                    <div key={weekStart} className="overflow-hidden rounded-xl border border-zinc-100 bg-white shadow-sm dark:border-white/5 dark:bg-zinc-900/50">
+                      <div className="bg-zinc-50/50 p-3 dark:bg-white/5 border-b border-zinc-50 dark:border-white/5">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-[10px] font-bold text-zinc-500 uppercase">
+                              Semana del {new Date(weekStart).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}
+                            </p>
+                            <p className="text-xs font-bold text-zinc-900 dark:text-zinc-50">
+                              {formatHoursMinutes(totalHours)} Total
+                            </p>
+                          </div>
+                          <div className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-blue-600 dark:bg-blue-900/20 dark:text-blue-400">
+                            {records.length} registros
+                          </div>
+                        </div>
+                      </div>
+                      <div className="divide-y divide-zinc-50 dark:divide-white/5">
+                        {records.map((record: any) => (
+                          <div key={record.id} className="p-2.5 flex items-center justify-between hover:bg-zinc-50 dark:hover:bg-white/5 transition-colors">
+                            <div className="flex flex-col">
+                              <span className="text-[10px] font-medium text-zinc-500">
+                                {new Date(record.check_in).toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric' })}
+                              </span>
+                              <span className="text-[11px] font-semibold text-zinc-700 dark:text-zinc-300">
+                                {record.check_in.split(' ')[1].slice(0, 5)} - {record.check_out ? record.check_out.split(' ')[1].slice(0, 5) : 'Pend'}
+                              </span>
+                            </div>
+                            <span className="text-[11px] font-bold text-zinc-500">
+                              {record.worked_hours ? `${Number(record.worked_hours).toFixed(1)}h` : '--'}
+                            </span>
+                          </div>
+                        ))}
                       </div>
                     </div>
-                  );
-                })}
+                  ))
+                )}
                </div>
             </div>
           )}
